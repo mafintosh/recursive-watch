@@ -91,7 +91,7 @@ function watchFallback (directory, onchange) {
       prev.name = filename
       prev.stat = st
 
-      visit(filename, function () {
+      visit(path.relative(directory, filename), function () {
         queued.shift()
         if (queued.length) update()
       })
@@ -104,7 +104,7 @@ function watchFallback (directory, onchange) {
     fs.lstat(dir, function (err, st) {
       if (err || !st.isDirectory()) return cb()
       if (watching[dir]) return cb()
-      if (loaded) emit(next)
+      if (loaded) emit(dir)
 
       var w = fs.watch(dir, function (change, filename) {
         filename = path.join(next, filename)
