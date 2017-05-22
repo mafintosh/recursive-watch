@@ -143,6 +143,6 @@ function same (a, b) {
     a.size === b.size &&
     a.blocks === b.blocks &&
     a.atime.getTime() === b.atime.getTime() &&
-    a.mtime.getTime() === b.atime.getTime() &&
+    a.mtime.getTime() === b.mtime.getTime() &&
     a.ctime.getTime() === b.ctime.getTime()
 }
