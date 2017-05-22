@@ -140,9 +140,9 @@ function same (a, b) {
     a.rdev === b.rdev &&
     a.blksize === b.blksize &&
     a.ino === b.ino &&
-    a.size === b.size &&
-    a.blocks === b.blocks &&
+    // a.size === b.size && DONT TEST - is a lying value
+    // a.blocks === b.blocks && DONT TEST - is a lying value
     a.atime.getTime() === b.atime.getTime() &&
-    a.mtime.getTime() === b.atime.getTime() &&
+    a.mtime.getTime() === b.mtime.getTime() &&
     a.ctime.getTime() === b.ctime.getTime()
 }
