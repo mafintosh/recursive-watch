@@ -56,7 +56,7 @@ function watchFallback (directory, onchange) {
   var watching = {}
   var loaded = false
   var queued = []
-  var prevs = new Cache({ttl: 2e3, capacity: 30
+  var prevs = new Cache({ttl: 2e3, capacity: 30})
 
   visit('.', function () {
     loaded = true
