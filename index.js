@@ -1,6 +1,7 @@
 var os = require('os')
 var fs = require('fs')
 var path = require('path')
+var Cache = require('ttl')
 
 var isLinux = os.platform() === 'linux' // native recursive watching not supported here
 var watchDirectory = isLinux ? watchFallback : watchRecursive
@@ -55,7 +56,7 @@ function watchFallback (directory, onchange) {
   var watching = {}
   var loaded = false
   var queued = []
-  var prev = {name: null, stat: null, time: 0}
+  var prevs = new Cache({ttl: 2e3, capacity: 30})
 
   visit('.', function () {
     loaded = true
@@ -83,13 +84,9 @@ function watchFallback (directory, onchange) {
         delete watching[filename]
       }
 
-      var now = Date.now()
-
-      if (prev.name !== filename || !same(st, prev.stat) || now - prev.time > 2000) onchange(filename)
-
-      prev.time = now
-      prev.name = filename
-      prev.stat = st
+      var prevSt = prevs.get(filename)
+      if (!prevSt || !same(st, prevSt)) onchange(filename)
+      prevs.put(filename, st)
 
       visit(path.relative(directory, filename), function () {
         queued.shift()
@@ -140,9 +137,9 @@ function same (a, b) {
     a.rdev === b.rdev &&
     a.blksize === b.blksize &&
     a.ino === b.ino &&
-    a.size === b.size &&
-    a.blocks === b.blocks &&
+    // a.size === b.size && DONT TEST - is a lying value
+    // a.blocks === b.blocks && DONT TEST - is a lying value
     a.atime.getTime() === b.atime.getTime() &&
-    a.mtime.getTime() === b.atime.getTime() &&
+    a.mtime.getTime() === b.mtime.getTime() &&
     a.ctime.getTime() === b.ctime.getTime()
 }
