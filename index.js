@@ -13,7 +13,10 @@ function watch (name, onchange) {
   var stopped = false
 
   fs.lstat(name, function (_, st) {
-    if (!st || stopped) return
+    if (!st || stopped) {
+      stopped = true
+      return
+    }
     clear = st.isDirectory() ? watchDirectory(name, onchange) : watchFile(name, onchange)
   })
 
