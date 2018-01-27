@@ -1,6 +1,6 @@
 {
   "name": "recursive-watch",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "Minimal recursive file watcher",
   "main": "index.js",
   "dependencies": {
