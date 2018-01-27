@@ -20,7 +20,9 @@ function watch (name, onchange) {
   return function () {
     if (stopped) return
     stopped = true
-    clear()
+    if (clear) {
+      clear()
+    }
   }
 }
 
