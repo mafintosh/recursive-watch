@@ -46,6 +46,7 @@ function watchFile (filename, onchange) {
 
 function watchRecursive (directory, onchange) {
   var w = fs.watch(directory, {recursive: true}, function (change, filename) {
+    if (!filename) return // filename not always given (https://nodejs.org/api/fs.html#fs_filename_argument)
     onchange(path.join(directory, filename))
   })
 
