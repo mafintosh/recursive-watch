@@ -3,8 +3,8 @@ var fs = require('fs')
 var path = require('path')
 var Cache = require('ttl')
 
-var isLinux = os.platform() === 'linux' // native recursive watching not supported here
-var watchDirectory = isLinux ? watchFallback : watchRecursive
+var isLinuxBased = os.platform() === 'linux' || os.platform() === 'android' // native recursive watching not supported here
+var watchDirectory = isLinuxBased ? watchFallback : watchRecursive
 
 module.exports = watch
 
