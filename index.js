@@ -63,12 +63,15 @@ function watchFallback (directory, onchange) {
   var loaded = false
   var queued = []
   var prevs = new Cache({ttl: 2e3, capacity: 30})
+  var cleanup = false
 
   visit('.', function () {
     loaded = true
   })
 
   return function () {
+    cleanup = true
+
     Object.keys(watching).forEach(function (dir) {
       watching[dir].close()
     })
@@ -82,12 +85,32 @@ function watchFallback (directory, onchange) {
   function update () {
     var filename = queued[0]
 
+    if (cleanup) {
+      const w = watching[filename]
+
+      if (w) {
+        w.close()
+        delete watching[filename]
+      }
+
+      queued.shift()
+      if (queued.length) update()
+
+      return
+    }
+
     fs.lstat(filename, function (err, st) {
       var w = watching[filename]
 
-      if (err && w) {
+      if ((err || cleanup) && w) {
         w.close()
         delete watching[filename]
+      }
+
+      if (cleanup) {
+        queued.shift()
+        if (queued.length) update()
+        return
       }
 
       var prevSt = prevs.get(filename)
@@ -106,6 +129,7 @@ function watchFallback (directory, onchange) {
 
     fs.lstat(dir, function (err, st) {
       if (err || !st.isDirectory()) return cb()
+      if (cleanup) return cb()
       if (watching[dir]) return cb()
       if (loaded) emit(dir)
 
@@ -124,6 +148,7 @@ function watchFallback (directory, onchange) {
 
         function loop () {
           if (!list.length) return cb()
+          if (cleanup) return cb()
           visit(path.join(next, list.shift()), loop)
         }
       })
