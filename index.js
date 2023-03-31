@@ -13,38 +13,64 @@ function watch (name, onchange) {
 
   var clear = null
   var stopped = false
+  var destroy = null
+
+  const destroying = new Promise(resolve => {
+    destroy = resolve
+  })
 
   fs.lstat(name, function (_, st) {
     console.log('watch -> fs.lstat', name, { stopped })
 
     if (!st || stopped) {
       stopped = true
+      destroy()
       return
     }
-    clear = st.isDirectory() ? watchDirectory(name, onchange) : watchFile(name, onchange)
+
+    const unwatch = st.isDirectory() ? watchDirectory(name, onchange) : watchFile(name, onchange)
+
+    clear = function () {
+      unwatch()
+      destroy()
+    }
   })
 
   return function () {
-    if (stopped) return
+    if (stopped) return destroying
     stopped = true
-    if (clear) {
-      clear()
-    }
+
+    if (clear) clear()
+
+    return destroying
   }
 }
 
 function watchFile (filename, onchange) {
   var prev = null
   var prevTime = 0
+  var actives = 0
   var cleanup = false
+  var destroy = null
+
+  const destroying = new Promise(resolve => {
+    destroy = resolve
+  })
 
   console.log('watchFile', filename)
 
   var w = fs.watch(filename, function () {
     console.log('watchFile fs.watch onchange', filename, { cleanup })
 
+    actives++
+
     fs.lstat(filename, function (_, st) {
       console.log('watchFile fs.watch -> fs.lstat', filename, { cleanup })
+
+      if (--actives === 0 && cleanup) {
+        destroy()
+        return
+      }
 
       var now = Date.now()
       if (now - prevTime > 2000 || !same(st, prev)) onchange(filename)
@@ -55,8 +81,15 @@ function watchFile (filename, onchange) {
 
   return function () {
     console.log('watchFile cleanup')
+
+    if (cleanup) return destroying
     cleanup = true
+
     w.close()
+
+    if (actives === 0) destroy()
+
+    return destroying
   }
 }
 
