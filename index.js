@@ -13,7 +13,12 @@ function watch (name, onchange) {
 
   var clear = null
   var stopped = false
+  var ready = null
   var destroy = null
+
+  const opening = new Promise(resolve => {
+    ready = resolve
+  })
 
   const destroying = new Promise(resolve => {
     destroy = resolve
@@ -24,6 +29,7 @@ function watch (name, onchange) {
 
     if (!st || stopped) {
       stopped = true
+      ready()
       destroy()
       return
     }
@@ -36,9 +42,11 @@ function watch (name, onchange) {
       if (promise && promise.then) promise.then(() => destroy())
       else setImmediate(() => destroy())
     }
+
+    ready()
   })
 
-  return function () {
+  function unwatch () {
     if (stopped) return destroying
     stopped = true
 
@@ -46,6 +54,12 @@ function watch (name, onchange) {
 
     return destroying
   }
+
+  unwatch.ready = function () {
+    return opening
+  }
+
+  return unwatch
 }
 
 function watchFile (filename, onchange) {
