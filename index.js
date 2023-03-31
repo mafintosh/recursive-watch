@@ -31,8 +31,10 @@ function watch (name, onchange) {
     const unwatch = st.isDirectory() ? watchDirectory(name, onchange) : watchFile(name, onchange)
 
     clear = function () {
-      unwatch()
-      destroy()
+      const promise = unwatch()
+
+      if (promise && promise.then) promise.then(() => destroy())
+      else setImmediate(() => destroy())
     }
   })
 
