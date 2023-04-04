@@ -216,7 +216,7 @@ function watchFallback (directory, onchange) {
 
       const prevSt = prevs.get(filename)
       if (!prevSt || !same(st, prevSt)) onchange(filename)
-      prevs.put(filename, st)
+      prevs.set(filename, st)
 
       visit(path.relative(directory, filename), function () {
         queued.shift()
