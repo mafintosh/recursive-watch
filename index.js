@@ -28,17 +28,9 @@ module.exports = class RecursiveWatch {
   }
 
   async _ready () {
-    // + temp
-    let st = null
-    try { // eslint-disable-line no-useless-catch
-      st = await fs.promises.lstat(this.filename)
-    } catch (error) {
-      // + auto-destroy on error
-      // if (!this.closed) throw error
-      // if (this.closed) return
-      throw error
-    }
-    if (!st || this.closed) return // +
+    const st = await fs.promises.lstat(this.filename)
+
+    if (this.closed) return console.log('aa')
 
     const watch = st.isDirectory() ? watchDirectory : watchFile
     this.unwatch = watch(this.filename, this.onchange)
