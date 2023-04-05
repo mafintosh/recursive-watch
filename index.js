@@ -3,19 +3,19 @@ const path = require('path')
 const Xache = require('xache')
 const safetyCatch = require('safety-catch')
 
-// + generic reusable watch maker
-// + global watchers map
-
 // Native recursive watching is not supported on Linux based platforms
 const isLinux = process.platform === 'linux' || process.platform === 'android'
 const watchDirectory = isLinux ? watchFallback : watchRecursive
 
-module.exports = class Watch {
+module.exports = class RecursiveWatch {
   constructor (filename, onchange) {
     this.filename = filename
     this.onchange = onchange
 
     this.unwatch = null
+
+    this.opened = false
+    this.closed = false
 
     this._opening = this._ready()
     this._closing = null
@@ -65,27 +65,46 @@ module.exports = class Watch {
   }
 }
 
-function watchRecursive (directory, onchange) {
-  let closed = false
-  let close = null
-  const closing = new Promise(resolve => { close = resolve })
+class Watch {
+  constructor (filename, opts, onchange) {
+    this.filename = filename
+    this.opts = opts || {}
+    this.onchange = onchange
 
-  const watcher = fs.watch(directory, { recursive: true }, function (change, filename) {
-    if (!filename) return // Filename not always given by fs.watch
+    this.opened = true
+    this.closed = false
 
-    onchange(path.join(directory, filename))
-  })
+    this._closing = null
 
-  watcher.on('error', noop)
-  watcher.on('close', () => close())
+    this.watcher = fs.watch(this.filename, this.opts, this.onchange)
+    this.watcherClosed = false
 
-  return function () {
-    if (closed) return closing
-    closed = true
+    this.watcher.on('error', noop)
+    this.watcher.on('close', () => {
+      this.watcherClosed = true
+    })
+  }
 
-    watcher.close()
+  async close () {
+    if (this._closing) return this._closing
+    this._closing = this._close()
+    return this._closing
+  }
 
-    return closing
+  async _close () {
+    if (this.closed) return
+    this.closed = true
+
+    let onclose = null
+
+    if (!this.watcherClosed) {
+      onclose = new Promise(resolve => this.watcher.on('close', resolve))
+    }
+
+    this.watcher.close()
+    await onclose
+
+    this.watcher = null
   }
 }
 
@@ -98,9 +117,7 @@ function watchFile (filename, onchange) {
   let close = null
   const closing = new Promise(resolve => { close = resolve })
 
-  actives++
-
-  const watcher = fs.watch(filename, function () {
+  const watcher = new Watch(filename, null, function () {
     actives++
 
     fs.lstat(filename, function (_, st) {
@@ -108,7 +125,7 @@ function watchFile (filename, onchange) {
 
       if (closed) {
         oncleanup()
-        return // + should still report the last pending changes?
+        return
       }
 
       const now = Date.now()
@@ -118,31 +135,35 @@ function watchFile (filename, onchange) {
     })
   })
 
-  watcher.on('error', noop)
-  watcher.on('close', () => {
-    actives--
-    oncleanup()
-  })
-
-  return function unwatch () {
+  return async function unwatch () {
     if (closed) return closing
     closed = true
 
-    watcher.close()
+    await watcher.close()
     oncleanup()
 
     return closing
   }
 
   function oncleanup () {
-    if (closed && actives === 0) close()
+    if (actives === 0) close()
   }
+}
+
+function watchRecursive (directory, onchange) {
+  const watcher = new Watch(directory, { recursive: true }, function (change, filename) {
+    if (!filename) return // Filename not always given by fs.watch
+
+    onchange(path.join(directory, filename))
+  })
+
+  return watcher
 }
 
 function watchFallback (directory, onchange) {
   let loaded = false
   const queued = []
-  const prevs = new Xache({ maxSize: 30, maxAge: 2000 }) // + why 30?
+  const prevs = new Xache({ maxSize: 30, maxAge: 2000 })
 
   const watchers = new Map()
   let actives = 0
@@ -160,7 +181,7 @@ function watchFallback (directory, onchange) {
     closed = true
 
     for (const [, watcher] of watchers) {
-      watcher.close()
+      await watcher.close()
     }
 
     return closing
@@ -218,13 +239,12 @@ function watchFallback (directory, onchange) {
       if (watchers.get(dir)) return cb()
       if (loaded) emit(dir)
 
-      const watcher = fs.watch(dir, function (change, filename) {
+      const watcher = new Watch(dir, null, function (change, filename) {
         filename = path.join(next, filename)
         emit(path.join(directory, filename))
       })
 
-      watcher.on('error', noop)
-      watcher.on('close', () => {
+      watcher.watcher.on('close', () => {
         watchers.delete(dir)
         oncleanup()
       })
