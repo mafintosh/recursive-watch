@@ -176,7 +176,7 @@ function watchFallback (directory, onchange) {
     loaded = true
   })
 
-  return function () {
+  return async function () {
     if (closed) return closing
     closed = true
 
