@@ -157,7 +157,9 @@ function watchRecursive (directory, onchange) {
     onchange(path.join(directory, filename))
   })
 
-  return watcher
+  return function unwatch () {
+    return watcher.close()
+  }
 }
 
 function watchFallback (directory, onchange) {
