@@ -172,21 +172,9 @@ function watchFallback (directory, onchange) {
   }
 
   function update () {
+    if (closed) return
+
     const filename = queued[0]
-
-    if (closed) {
-      /* const watcher = watchers.get(filename)
-
-      if (watcher) {
-        watcher.close()
-        watchers.delete(filename)
-      }
-
-      queued.shift()
-      if (queued.length) update() */
-
-      return
-    }
 
     actives++
 
@@ -194,9 +182,6 @@ function watchFallback (directory, onchange) {
       actives--
 
       if (closed) {
-        /* queued.shift()
-        if (queued.length) update() */
-
         oncleanup()
         return
       }
@@ -207,12 +192,6 @@ function watchFallback (directory, onchange) {
         watcher.close()
         watchers.delete(filename)
       }
-
-      /* if (closed) {
-        queued.shift()
-        if (queued.length) update()
-        return
-      } */
 
       const prevSt = prevs.get(filename)
       if (!prevSt || !same(st, prevSt)) onchange(filename)
