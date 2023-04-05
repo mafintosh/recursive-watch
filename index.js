@@ -30,7 +30,7 @@ module.exports = class RecursiveWatch {
   async _ready () {
     const st = await fs.promises.lstat(this.filename)
 
-    if (this.closed) return console.log('aa')
+    if (this.closed) return
 
     const watch = st.isDirectory() ? watchDirectory : watchFile
     this.unwatch = watch(this.filename, this.onchange)
