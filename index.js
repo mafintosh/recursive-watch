@@ -1,290 +1,45 @@
 const fs = require('fs')
-const path = require('path')
-const Xache = require('xache')
+const ReadyResource = require('ready-resource')
 const safetyCatch = require('safety-catch')
+const watchFile = require('./lib/watch-file.js')
+const watchFallback = require('./lib/watch-fallback.js')
+const watchRecursive = require('./lib/watch-recursive.js')
 
 // Native recursive watching is not supported on Linux based platforms
 const isLinux = process.platform === 'linux' || process.platform === 'android'
 const watchDirectory = isLinux ? watchFallback : watchRecursive
 
-module.exports = class RecursiveWatch {
+module.exports = class RecursiveWatch extends ReadyResource {
   constructor (filename, onchange) {
+    super()
+
     this.filename = filename
-    this.onchange = onchange
+    this._onchange = onchange
 
-    this.unwatch = null
+    this._unwatch = null
 
-    this.opened = false
-    this.closed = false
-
-    this._opening = this._ready()
-    this._closing = null
-
-    this._opening.catch(safetyCatch)
+    this.ready().catch(safetyCatch)
   }
 
-  ready () {
-    return this._opening
-  }
+  async _open () {
+    let st = null
 
-  async _ready () {
-    const st = await fs.promises.lstat(this.filename)
-
-    if (this.closed) return
+    try {
+      st = await fs.promises.lstat(this.filename)
+    } catch (err) {
+      // console.log(err)
+      if (err.code === 'ENOENT') return
+      throw err
+    }
 
     const watch = st.isDirectory() ? watchDirectory : watchFile
-    this.unwatch = watch(this.filename, this.onchange)
-
-    this.opened = true
-  }
-
-  async close () {
-    if (this._closing) return this._closing
-    this._closing = this._close()
-    return this._closing
+    this._unwatch = watch(this.filename, this._onchange)
   }
 
   async _close () {
-    if (this.closed) return
-    this.closed = true
-
-    if (!this.opened) await this._opening.catch(safetyCatch)
-
-    if (this.unwatch) {
-      await this.unwatch()
-      this.unwatch = null
+    if (this._unwatch) {
+      await this._unwatch()
+      this._unwatch = null
     }
   }
-}
-
-class Watch {
-  constructor (filename, opts, onchange) {
-    this.filename = filename
-    this.opts = opts || {}
-    this.onchange = onchange
-
-    this.opened = true
-    this.closed = false
-
-    this._closing = null
-
-    this.watcher = fs.watch(this.filename, this.opts, this.onchange)
-    this.watcherClosed = false
-
-    this.watcher.on('error', noop)
-    this.watcher.on('close', () => {
-      this.watcherClosed = true
-    })
-  }
-
-  async close () {
-    if (this._closing) return this._closing
-    this._closing = this._close()
-    return this._closing
-  }
-
-  async _close () {
-    if (this.closed) return
-    this.closed = true
-
-    let onclose = null
-
-    if (!this.watcherClosed) {
-      onclose = new Promise(resolve => this.watcher.on('close', resolve))
-    }
-
-    this.watcher.close()
-    await onclose
-
-    this.watcher = null
-  }
-}
-
-function watchFile (filename, onchange) {
-  let prev = null
-  let prevTime = 0
-  let actives = 0
-
-  let closed = false
-  let close = null
-  const closing = new Promise(resolve => { close = resolve })
-
-  const watcher = new Watch(filename, null, function () {
-    actives++
-
-    fs.lstat(filename, function (_, st) {
-      actives--
-
-      if (closed) {
-        oncleanup()
-        return
-      }
-
-      const now = Date.now()
-      if (now - prevTime > 2000 || !same(st, prev)) onchange(filename)
-      prevTime = now
-      prev = st
-    })
-  })
-
-  return async function unwatch () {
-    if (closed) return closing
-    closed = true
-
-    await watcher.close()
-    oncleanup()
-
-    return closing
-  }
-
-  function oncleanup () {
-    if (actives === 0) close()
-  }
-}
-
-function watchRecursive (directory, onchange) {
-  const watcher = new Watch(directory, { recursive: true }, function (change, filename) {
-    if (!filename) return // Filename not always given by fs.watch
-
-    onchange(path.join(directory, filename))
-  })
-
-  return function unwatch () {
-    return watcher.close()
-  }
-}
-
-function watchFallback (directory, onchange) {
-  let loaded = false
-  const queued = []
-  const prevs = new Xache({ maxSize: 30, maxAge: 2000 })
-
-  const watchers = new Map()
-  let actives = 0
-
-  let closed = false
-  let close = null
-  const closing = new Promise(resolve => { close = resolve })
-
-  visit('.', function () {
-    loaded = true
-  })
-
-  return async function unwatch () {
-    if (closed) return closing
-    closed = true
-
-    for (const [, watcher] of watchers) {
-      await watcher.close()
-    }
-
-    return closing
-  }
-
-  function emit (name) {
-    queued.push(name)
-    if (queued.length === 1) update()
-  }
-
-  function update () {
-    if (closed) return
-
-    const filename = queued[0]
-
-    actives++
-
-    fs.lstat(filename, function (err, st) {
-      actives--
-
-      if (closed) {
-        oncleanup()
-        return
-      }
-
-      const watcher = watchers.get(filename)
-
-      if (err && watcher) {
-        watcher.close()
-        watchers.delete(filename)
-      }
-
-      const prevSt = prevs.get(filename)
-      if (!prevSt || !same(st, prevSt)) onchange(filename)
-      prevs.set(filename, st)
-
-      visit(path.relative(directory, filename), function () {
-        queued.shift()
-        if (queued.length) update()
-      })
-    })
-  }
-
-  function visit (next, cb) {
-    const dir = path.join(directory, next)
-
-    actives++
-
-    fs.lstat(dir, function (err, st) {
-      actives--
-      oncleanup()
-
-      if (err || !st.isDirectory()) return cb()
-      if (closed) return cb()
-      if (watchers.get(dir)) return cb()
-      if (loaded) emit(dir)
-
-      const watcher = new Watch(dir, null, function (change, filename) {
-        filename = path.join(next, filename)
-        emit(path.join(directory, filename))
-      })
-
-      watcher.watcher.on('close', () => {
-        watchers.delete(dir)
-        oncleanup()
-      })
-
-      watchers.set(dir, watcher)
-
-      actives++
-
-      fs.readdir(dir, function (err, list) {
-        actives--
-        oncleanup()
-
-        if (err) return cb(err)
-
-        loop()
-
-        function loop () {
-          if (!list.length) return cb()
-          if (closed) return cb()
-          visit(path.join(next, list.shift()), loop)
-        }
-      })
-    })
-  }
-
-  function oncleanup () {
-    if (closed && actives === 0) close()
-  }
-}
-
-function noop () {}
-
-function same (a, b) {
-  if (!a || !b) return false
-
-  return a.dev === b.dev &&
-    a.mode === b.mode &&
-    a.nlink === b.nlink &&
-    a.uid === b.uid &&
-    a.gid === b.gid &&
-    a.rdev === b.rdev &&
-    a.blksize === b.blksize &&
-    a.ino === b.ino &&
-    // a.size === b.size && DONT TEST - is a lying value
-    // a.blocks === b.blocks && DONT TEST - is a lying value
-    a.atime.getTime() === b.atime.getTime() &&
-    a.mtime.getTime() === b.mtime.getTime() &&
-    a.ctime.getTime() === b.ctime.getTime()
 }

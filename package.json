@@ -4,6 +4,7 @@
   "description": "Minimal recursive file watcher",
   "main": "index.js",
   "dependencies": {
+    "ready-resource": "^1.0.0",
     "safety-catch": "^1.0.2",
     "xache": "^1.1.0"
   },
