@@ -27,7 +27,7 @@ module.exports = class RecursiveWatch extends ReadyResource {
     try {
       st = await fs.promises.lstat(this.filename)
     } catch (err) {
-      if (err.code === 'ENOENT') return
+      // if (err.code === 'ENOENT') return
       throw err
     }
 
