@@ -1,151 +1,48 @@
-var os = require('os')
-var fs = require('fs')
-var path = require('path')
-var Cache = require('ttl')
+const fs = require('fs')
+const ReadyResource = require('ready-resource')
+const safetyCatch = require('safety-catch')
+const watchFile = require('./lib/watch-file.js')
+const watchFallback = require('./lib/watch-fallback.js')
+const watchRecursive = require('./lib/watch-recursive.js')
 
-var isLinux = os.platform() === 'linux' // native recursive watching not supported here
-var watchDirectory = isLinux ? watchFallback : watchRecursive
+// Native recursive watching is not supported on Linux based platforms
+const isLinux = process.platform === 'linux' || process.platform === 'android'
+const watchDirectory = isLinux ? watchFallback : watchRecursive
 
-module.exports = watch
+module.exports = class RecursiveWatch extends ReadyResource {
+  constructor (filename, onchange) {
+    super()
 
-function watch (name, onchange) {
-  var clear = null
-  var stopped = false
+    this.filename = filename
+    this._onchange = onchange
 
-  fs.lstat(name, function (_, st) {
-    if (!st || stopped) {
-      stopped = true
-      return
+    this._unwatch = null
+
+    this.ready().catch(safetyCatch)
+  }
+
+  async _open () {
+    let st = null
+
+    try {
+      st = await fs.promises.lstat(this.filename)
+    } catch (err) {
+      if (err.code === 'ENOENT') return
+      throw err
     }
-    clear = st.isDirectory() ? watchDirectory(name, onchange) : watchFile(name, onchange)
-  })
 
-  return function () {
-    if (stopped) return
-    stopped = true
-    if (clear) {
-      clear()
+    const watch = st.isDirectory() ? watchDirectory : watchFile
+    this._unwatch = watch(this.filename, this._onchange)
+  }
+
+  async _close () {
+    if (this._unwatch) {
+      await this._unwatch()
+      this._unwatch = null
     }
   }
-}
 
-function watchFile (filename, onchange) {
-  var prev = null
-  var prevTime = 0
-
-  var w = fs.watch(filename, function () {
-    fs.lstat(filename, function (_, st) {
-      var now = Date.now()
-      if (now - prevTime > 2000 || !same(st, prev)) onchange(filename)
-      prevTime = now
-      prev = st
-    })
-  })
-
-  return function () {
-    w.close()
+  get watching () {
+    return !!this._unwatch
   }
-}
-
-function watchRecursive (directory, onchange) {
-  var w = fs.watch(directory, {recursive: true}, function (change, filename) {
-    if (!filename) return // filename not always given (https://nodejs.org/api/fs.html#fs_filename_argument)
-    onchange(path.join(directory, filename))
-  })
-
-  return function () {
-    w.close()
-  }
-}
-
-function watchFallback (directory, onchange) {
-  var watching = {}
-  var loaded = false
-  var queued = []
-  var prevs = new Cache({ttl: 2e3, capacity: 30})
-
-  visit('.', function () {
-    loaded = true
-  })
-
-  return function () {
-    Object.keys(watching).forEach(function (dir) {
-      watching[dir].close()
-    })
-  }
-
-  function emit (name) {
-    queued.push(name)
-    if (queued.length === 1) update()
-  }
-
-  function update () {
-    var filename = queued[0]
-
-    fs.lstat(filename, function (err, st) {
-      var w = watching[filename]
-
-      if (err && w) {
-        w.close()
-        delete watching[filename]
-      }
-
-      var prevSt = prevs.get(filename)
-      if (!prevSt || !same(st, prevSt)) onchange(filename)
-      prevs.put(filename, st)
-
-      visit(path.relative(directory, filename), function () {
-        queued.shift()
-        if (queued.length) update()
-      })
-    })
-  }
-
-  function visit (next, cb) {
-    var dir = path.join(directory, next)
-
-    fs.lstat(dir, function (err, st) {
-      if (err || !st.isDirectory()) return cb()
-      if (watching[dir]) return cb()
-      if (loaded) emit(dir)
-
-      var w = fs.watch(dir, function (change, filename) {
-        filename = path.join(next, filename)
-        emit(path.join(directory, filename))
-      })
-
-      w.on('error', noop)
-      watching[dir] = w
-
-      fs.readdir(dir, function (err, list) {
-        if (err) return cb(err)
-
-        loop()
-
-        function loop () {
-          if (!list.length) return cb()
-          visit(path.join(next, list.shift()), loop)
-        }
-      })
-    })
-  }
-}
-
-function noop () {}
-
-function same (a, b) {
-  if (!a || !b) return false
-  return a.dev === b.dev &&
-    a.mode === b.mode &&
-    a.nlink === b.nlink &&
-    a.uid === b.uid &&
-    a.gid === b.gid &&
-    a.rdev === b.rdev &&
-    a.blksize === b.blksize &&
-    a.ino === b.ino &&
-    // a.size === b.size && DONT TEST - is a lying value
-    // a.blocks === b.blocks && DONT TEST - is a lying value
-    a.atime.getTime() === b.atime.getTime() &&
-    a.mtime.getTime() === b.mtime.getTime() &&
-    a.ctime.getTime() === b.ctime.getTime()
 }
