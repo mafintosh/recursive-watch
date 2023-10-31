@@ -11,19 +11,26 @@ npm install recursive-watch
 ## Usage
 
 ``` js
-var watch = require('recursive-watch')
+const RecursiveWatch = require('recursive-watch')
 
-watch('./a-file-or-directory', function (filename) {
+const watcher = new RecursiveWatch('./a-file-or-directory', function (filename) {
   console.log('something changed with', filename)
 })
 ```
 
 ## API
 
-#### `var unwatch = watch(path, onchange)`
+#### `const watcher = new RecursiveWatch(path, onchange)`
 
 Watch a directory or filename. Calls the `onchange` function if the path changed in anyway.
-Call the `unwatch` function to stop watching the path.
+
+#### `await watcher.ready()`
+
+Waits until it's fully watching the path.
+
+#### `await watcher.close()`
+
+Stops watching the path.
 
 ## License
 
